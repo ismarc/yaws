@@ -13,6 +13,8 @@
 #elif (defined(__APPLE__) && defined(__MACH__)) || defined(__FreeBSD__)
 #include <sys/socket.h>
 #include <sys/uio.h>
+#include <ctype.h>
+#include <unistd.h>
 #else
 #error "yaws_sendfile_drv not supported on this platform"
 #endif
