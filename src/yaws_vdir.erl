@@ -2,9 +2,9 @@
 
 -export([arg_rewrite/1]).
 
--include_lib("yaws/include/yaws.hrl").
--include_lib("yaws/include/yaws_api.hrl").
--include_lib("yaws/src/yaws_debug.hrl").
+-include("yaws.hrl").
+-include("yaws_api.hrl").
+-include("yaws_debug.hrl").
 
 
 -export([join/2]).

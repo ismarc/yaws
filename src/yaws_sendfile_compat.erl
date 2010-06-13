@@ -7,7 +7,6 @@
 -export([start_link/0, init/1, stop/0, send/2, send/3, send/4, enabled/0]).
 
 -include_lib("kernel/include/file.hrl").
--include("yaws_configure.hrl").
 
 -include("../include/yaws.hrl").
 
