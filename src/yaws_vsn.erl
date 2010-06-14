@@ -10,7 +10,4 @@
 
 -compile(export_all).
 
-version() -> "%VSN%".
-
-    
-
+version() -> "1.88".

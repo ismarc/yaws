@@ -12,12 +12,10 @@
 
 -compile(export_all).
 
-version() -> "%VSN%".
+version() -> "1.88".
 
-vardir() ->  "%VARDIR%".
+vardir() ->  "".
 
-etcdir() -> "%ETCDIR%".
+etcdir() -> "".
 
-is_local_install() -> %localinstall%.
-                   
-
+is_local_install() -> false.
