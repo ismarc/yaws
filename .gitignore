@@ -17,7 +17,6 @@ include.mk
 priv/epam
 scripts/yaws.conf
 src/charset.def
-src/mime_types.erl
 test/support/include.mk
 test/support/include.sh
 test/t1/localhost:8000/
