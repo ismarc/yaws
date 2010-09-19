@@ -285,15 +285,18 @@ setup_sconf(DocRoot, D, SL) ->
                             D#sconf.start_mod),
            allowed_scripts = lkup(allowed_scripts, SL, 
                                   D#sconf.allowed_scripts),
+           tilde_allowed_scripts = lkup(tilde_allowed_scripts, SL,
+                                        D#sconf.tilde_allowed_scripts),
            revproxy = lkup(revproxy, SL, 
                            D#sconf.revproxy),
            soptions = lkup(soptions, SL,
                            D#sconf.soptions),
+           extra_cgi_vars = lkup(extra_cgi_vars, SL,
+                                 D#sconf.extra_cgi_vars),
            stats = lkup(stats, SL, D#sconf.stats),
-           fcgi_app_server_host = lkup(fcgi_app_server_host, SL, 
-                                       D#sconf.fcgi_app_server_host),
-           fcgi_app_server_port = lkup(fcgi_app_server_port, SL, 
-                                       D#sconf.fcgi_app_server_port)}.
+           fcgi_app_server = lkup(fcgi_app_server, SL,
+                                  D#sconf.fcgi_app_server),
+           phpfcgi = lkup(phpfcgi, SL, D#sconf.phpfcgi)}.
 
 setup_sconf_ssl(SL, DefaultSSL) ->
     case lkup(ssl, SL, undefined) of
@@ -1896,11 +1899,11 @@ http_recv_request(CliSock, SSL) ->
             R;
         {ok, R} when is_record(R, http_response) ->
             R;
-        {error, {http_error, "\r\n"}} ->
+        {_, {http_error, "\r\n"}} ->
             http_recv_request(CliSock, SSL);
-        {error, {http_error, "\n"}} ->
+        {_, {http_error, "\n"}} ->
             http_recv_request(CliSock,SSL);
-        {error, {http_error, _}} ->
+        {_, {http_error, _}} ->
             bad_request;
         {error, closed} -> 
             closed;
@@ -1982,9 +1985,9 @@ http_collect_headers(CliSock, Req, H, SSL, Count) when Count < 1000 ->
         %% these are here to be a little forgiving to
         %% bad (typically test script) clients
 
-        {error, {http_error, "\r\n"}} ->
+        {_, {http_error, "\r\n"}} ->
             http_collect_headers(CliSock, Req, H,SSL, Count+1);
-        {error, {http_error, "\n"}} ->
+        {_, {http_error, "\n"}} ->
             http_collect_headers(CliSock, Req, H,SSL, Count+1);
 
         %% auxilliary headers we don't have builtin support for

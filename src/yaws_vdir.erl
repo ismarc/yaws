@@ -6,7 +6,6 @@
 -include("yaws_api.hrl").
 -include("yaws_debug.hrl").
 
-
 -export([join/2]).
 
 join(List, Sep) ->

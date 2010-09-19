@@ -106,8 +106,8 @@ add_yaws_auth(SCs) ->
 %% We search and setup www authenticate for each directory
 %% specified as an auth directory or containing a .yaws_auth file. 
 %% These are merged with server conf.
-setup_auth(#sconf{docroot = Docroot, authdirs = Authdirs}) ->
-    Authdirs1 = load_yaws_auth_from_docroot(Docroot),
+setup_auth(#sconf{docroot = Docroot, authdirs = Authdirs}=SC) ->
+    Authdirs1 = load_yaws_auth_from_docroot(Docroot, ?sc_auth_skip_docroot(SC)),
     Authdirs2 = load_yaws_auth_from_authdirs(Authdirs, Docroot, Authdirs1),
     Authdirs3 = ensure_auth_headers(Authdirs2),
     Authdirs4 = [{Dir, A} || A = #auth{dir = [Dir]} <- Authdirs3], % A->{Dir, A}
@@ -115,9 +115,11 @@ setup_auth(#sconf{docroot = Docroot, authdirs = Authdirs}) ->
     Authdirs4.
 
     
-load_yaws_auth_from_docroot(undefined) ->
+load_yaws_auth_from_docroot(_, true) ->
     [];
-load_yaws_auth_from_docroot(Docroot) ->
+load_yaws_auth_from_docroot(undefined, _) ->
+    [];
+load_yaws_auth_from_docroot(Docroot, _) ->
     Fun = fun (Path, Acc) ->
 		  %% Strip Docroot and then filename
 		  SP  = string:sub_string(Path, length(Docroot)+1),
@@ -395,22 +397,18 @@ del_tail2([H|T], Acc) ->
     del_tail2(T, [H|Acc]).
 
 
-
 string_to_host_and_port(String) ->
-    case string:rchr(String, $:) of
-        0 ->
-            {error, "missing colon (:) character."};
-        ColonPos ->
-            Host = string:left(String, ColonPos - 1),
-            PortStr = string:sub_string(String, ColonPos + 1),
-            case (catch list_to_integer(PortStr)) of
-                Port when is_integer(Port) and (Port >= 0) and (Port =< 65535) ->
-                    {ok, Host, Port};
-                _ ->
-                    {error, ?F("~p is not a valid port number.", [PortStr])}
-            end
+    case string:tokens(String, ":") of
+	[Host, Port] ->
+	    case string:to_integer(Port) of
+		{Integer, []} when Integer >= 0, Integer =< 65535 ->
+		    {ok, Host, Integer};
+		_Else ->
+                    {error, ?F("~p is not a valid port number", [Port])}
+	    end;
+	_Else ->
+            {error, ?F("bad host and port specifier, expected HOST:PORT", [])}
     end.
-
 
 
 %% two states, global, server
@@ -834,6 +832,14 @@ fload(FD, server, GC, C, Cs, Lno, Chars) ->
                 false ->
                     {error, ?F("Expect true|false at line ~w", [Lno])}
             end;
+        ["auth_skip_docroot",'=',Bool] ->
+            case is_bool(Bool) of
+                {true,Val} ->
+                    C2 = ?sc_set_auth_skip_docroot(C, Val),
+                    fload(FD, server, GC, C2, Cs, Lno+1, Next);
+                false ->
+                    {error, ?F("Expect true|false at line ~w", [Lno])}
+            end;
         ["dav", '=', Bool] ->
             case is_bool(Bool) of
                 {true, Val} ->
@@ -1036,16 +1042,16 @@ fload(FD, server, GC, C, Cs, Lno, Chars) ->
                 false ->
                     {error, ?F("Expect true|false at line ~w", [Lno])}
             end;
+
         ["fcgi_app_server", '=', Val] ->
             case string_to_host_and_port(Val) of
                 {ok, Host, Port} ->
-                    C2 = C#sconf{fcgi_app_server_host = Host, fcgi_app_server_port = Port},
+                    C2 = C#sconf{fcgi_app_server = {Host, Port}},
                     fload(FD, server, GC, C2, Cs, Lno+1, Next);
                 {error, Reason} ->
-                    {error, ?F("Invalid fcgi_app_server ~p at line ~w: ~s", [Val, Lno, Reason])}
+                    {error, ?F("Invalid fcgi_app_server ~p at line ~w: ~s",
+                               [Val, Lno, Reason])}
             end;
-
-                
 
         ["fcgi_trace_protocol", '=', Bool] ->
             case is_bool(Bool) of
@@ -1063,6 +1069,17 @@ fload(FD, server, GC, C, Cs, Lno, Chars) ->
                     fload(FD, server, GC, C2, Cs, Lno+1, Next);
                 false ->
                     {error, ?F("Expect true|false at line ~w", [Lno])}
+            end;
+
+	["phpfcgi", '=', HostPortSpec] ->
+	    case string_to_host_and_port(HostPortSpec) of
+		{ok, Host, Port} ->
+		    C2 = C#sconf{phpfcgi = {Host, Port}},
+		    fload(FD, server, GC, C2, Cs, Lno+1, Next);
+                {error, Reason} ->
+                    {error,
+                     ?F("Invalid php fcgi server ~p at line ~w: ~s",
+                        [HostPortSpec, Lno, Reason])}
             end;
 
         [H|T] ->
@@ -1711,8 +1728,7 @@ eq_sconfs(S1,S2) ->
      S1#sconf.allowed_scripts == S2#sconf.allowed_scripts andalso
      S1#sconf.revproxy == S2#sconf.revproxy andalso
      S1#sconf.soptions == S2#sconf.soptions andalso
-     S1#sconf.fcgi_app_server_host == S2#sconf.fcgi_app_server_host andalso
-     S1#sconf.fcgi_app_server_port == S2#sconf.fcgi_app_server_port).
+     S1#sconf.fcgi_app_server == S2#sconf.fcgi_app_server).
 
 
 

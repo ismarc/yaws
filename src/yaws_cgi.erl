@@ -772,7 +772,8 @@ fcgi_worker_fail(WorkerState, Reason) ->
     ParentPid = WorkerState#fcgi_worker_state.parent_pid,
     ParentPid ! {self(), failure, Reason},
     error_logger:error_msg("FastCGI failure: ~p~n", [Reason]),
-    exit(Reason).
+    %% exit normally to avoid filling log with crash messages
+    exit(normal).
 
 fcgi_worker_fail_if(true, WorkerState, Reason) ->
     fcgi_worker_fail(WorkerState, Reason);
@@ -785,10 +786,15 @@ fcgi_start_worker(Role, Arg, ServerConf, Options) ->
 
 
 fcgi_worker(ParentPid, Role, Arg, ServerConf, Options) ->
-    AppServerHost = get_opt(app_server_host, Options,
-                            ServerConf#sconf.fcgi_app_server_host),
-    AppServerPort = get_opt(app_server_port, Options,
-                            ServerConf#sconf.fcgi_app_server_port),
+    {DefaultSvrHost, DefaultSvrPort} =
+        case ServerConf#sconf.fcgi_app_server of
+            undefined ->
+                {undefined, undefined};
+            Else ->
+                Else
+        end,
+    AppServerHost = get_opt(app_server_host, Options, DefaultSvrHost),
+    AppServerPort = get_opt(app_server_port, Options, DefaultSvrPort),
     PreliminaryWorkerState = #fcgi_worker_state{parent_pid = ParentPid},
     fcgi_worker_fail_if(AppServerHost == undefined, PreliminaryWorkerState,
                         "app server host must be configured"),
@@ -821,19 +827,19 @@ fcgi_worker(ParentPid, Role, Arg, ServerConf, Options) ->
             TraceProtocol,
             LogAppError]),
     WorkerState = #fcgi_worker_state{
-                app_server_host = AppServerHost,
-                app_server_port = AppServerPort,
-                path_info = PathInfo,
-                env = Env,
-                keep_connection = false,        % Currently hard-coded; make
-                                                % configurable in the future?
-                trace_protocol = TraceProtocol,
-                log_app_error = LogAppError,
-                role = Role,
-                parent_pid = ParentPid,
-                yaws_worker_pid = Arg#arg.pid,
-                app_server_socket = AppServerSocket
-            },
+      app_server_host = AppServerHost,
+      app_server_port = AppServerPort,
+      path_info = PathInfo,
+      env = Env,
+      keep_connection = false,                % Currently hard-coded; make
+                                              % configurable in the future?
+      trace_protocol = TraceProtocol,
+      log_app_error = LogAppError,
+      role = Role,
+      parent_pid = ParentPid,
+      yaws_worker_pid = Arg#arg.pid,
+      app_server_socket = AppServerSocket
+     },
     fcgi_send_begin_request(WorkerState),
     fcgi_send_params(WorkerState, Env),
     fcgi_send_params(WorkerState, []),
@@ -1016,7 +1022,7 @@ fcgi_encode_name_value_list(_NameValueList = [{Name, Value} | Tail]) ->
 fcgi_encode_name_value(Name, _Value = undefined) ->
     fcgi_encode_name_value(Name, "");
 fcgi_encode_name_value(Name, Value) when is_list(Name) and is_list(Value) ->
-    NameSize = length(Name),
+    NameSize = iolist_size(Name),
     %% If name size is < 128, encode it as one byte with the high bit clear.
     %% If the name size >= 128, encoded it as 4 bytes with the high bit set.
     NameSizeData = if
@@ -1024,19 +1030,16 @@ fcgi_encode_name_value(Name, Value) when is_list(Name) and is_list(Value) ->
                            <<NameSize:8>>;
                        true ->
                            <<(NameSize bor 16#80000000):32>>
-                               end,
+                   end,
     %% Same encoding for the value size.
-    ValueSize = length(Value),
+    ValueSize = iolist_size(Value),
     ValueSizeData = if
-        ValueSize < 128 ->
-            <<ValueSize:8>>;
-        true ->
-            <<(ValueSize bor 16#80000000):32>>
-    end,
-    <<NameSizeData/binary,
-      ValueSizeData/binary,
-      (list_to_binary(Name))/binary,
-      (list_to_binary(Value))/binary>>.
+                        ValueSize < 128 ->
+                            <<ValueSize:8>>;
+                        true ->
+                            <<(ValueSize bor 16#80000000):32>>
+                    end,
+    list_to_binary([<<NameSizeData/binary, ValueSizeData/binary>>, Name, Value]).
 
 
 fcgi_header_loop(WorkerState) ->
