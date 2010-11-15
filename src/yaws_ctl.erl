@@ -18,7 +18,7 @@
 
 -export([start/2, actl_trace/1]).
 -export([ls/1,hup/1,stop/1,status/1,load/1,
-         check/1,trace/1, debug_dump/1, stats/1]).
+         check/1,trace/1, debug_dump/1, stats/1, running_config/1]).
 %% internal
 -export([run/1, aloop/3, handle_a/3]).
 
@@ -154,6 +154,7 @@ handle_a(A, GC, Key) ->
                     Res = yaws:dohup(A),
                     Res;
                 {stop, Key} ->
+                    error_logger:info_msg("Stopping yaws\n",[]),
                     gen_tcp:send(A, io_lib:format(
                                       "stopping yaws with id=~p\n",
                                       [GC#gconf.id])),
@@ -177,6 +178,9 @@ handle_a(A, GC, Key) ->
                     gen_tcp:close(A);
                 {stats, Key} ->
                     a_stats(A),
+                    gen_tcp:close(A);
+                {running_config, Key} ->
+                    a_running_config(A),
                     gen_tcp:close(A);
                 {Other, Key} ->
                     gen_tcp:send(A, io_lib:format("Other: ~p~n", [Other])),
@@ -284,6 +288,23 @@ format_ip(IP) ->
 	    io_lib:format(?IPV6_FMT,
 			  [A, B, C, D, E, F, G, H])
     end.
+
+
+a_running_config(Sock) ->
+    gen_tcp:send(Sock, a_running_config()).
+a_running_config() ->
+    {ok, GC, Groups} = yaws_server:getconf(),
+    GcStr = ?format_record(GC, gconf),
+    L = lists:map(fun(Group) ->
+                          ["** GROUP ** \n",
+                           lists:map(
+                             fun(SC) ->
+                                     ?format_record(SC, sconf)
+                             end,
+                             Group)
+                          ]
+                  end, Groups),
+    ["** GLOBAL CONF ** \n", GcStr, L]. 
 
 a_stats(Sock) ->
     gen_tcp:send(Sock, a_stats()).
@@ -423,7 +444,7 @@ actl(SID, Term) ->
                         {error, closed} ->
                             erlang:halt(0);
                         Other ->
-                            io:format("~p~n", [Other]),
+                            io:format("Stopping yaws: ~p~n", [Other]),
                             erlang:halt(3)
                     end;
                 ok ->
@@ -543,4 +564,5 @@ debug_dump([SID]) ->
 
 stats([SID]) ->
     actl(SID, stats).
-
+running_config([SID]) ->
+    actl(SID, running_config).

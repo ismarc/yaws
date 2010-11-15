@@ -236,11 +236,6 @@ validate_cs(GC, Cs) ->
     L3 = arrange(L2, start, [], []),
     case validate_groups(L3) of
         ok ->
-            yaws_debug:format(GC, "Starting with GC = ~p~n",[GC]),
-            lists:foreach(fun(Group) ->
-                                 yaws_debug:format(GC, "VirtHost SC list = ~p~n",
-                                                   [Group])
-                         end, L3),
             {ok, GC, L3};
         Err ->
             Err
@@ -779,7 +774,14 @@ fload(FD, globals, GC, C, Cs, Lno, Chars) ->
             %% just ignore - not relevant any longer
             fload(FD, globals, GC,
                   C, Cs, Lno+1, Next);
-        
+        ["x_forwarded_for_log_proxy_whitelist", '=' | Suffixes] ->
+            case ip_list_parser(Suffixes, []) of
+                error ->
+                    {error, ?F("Expect IP address at line ~w:", [Lno])};
+                {ok, Addrs} ->
+                    GC2 = GC#gconf{x_forwarded_for_log_proxy_whitelist = Addrs},
+                    fload(FD, globals, GC2, C, Cs, Lno+1, Next)
+            end;
         ['<', "server", Server, '>'] ->  %% first server 
             fload(FD, server, GC, #sconf{servername = Server},
                   Cs, Lno+1, Next);
@@ -1132,8 +1134,13 @@ fload(FD, ssl, GC, C, Cs, Lno, Chars) ->
                     {error, ?F("Expect existing file at line ~w", [Lno])}
             end;
         ["verify", '=', Val0] ->
-            Val = (catch list_to_integer(Val0)),
-            case lists:member(Val, [1,2,3]) of
+            Val =
+                try
+                    list_to_integer(Val0)
+                catch error:badarg ->
+                    list_to_atom(Val0)
+                end,
+            case lists:member(Val, [0,1,2,verify_peer,verify_none]) of
                 true when  is_record(C#sconf.ssl, ssl) ->
                     C2 = C#sconf{ssl = (C#sconf.ssl)#ssl{verify = Val}},
                     fload(FD, ssl, GC, C2, Cs, Lno+1, Next);
@@ -1141,7 +1148,17 @@ fload(FD, ssl, GC, C, Cs, Lno, Chars) ->
                     {error, ?F("Need to set option ssl to true before line ~w",
                                [Lno])};
                 _ ->
-                    {error, ?F("Expect integer at line ~w", [Lno])}
+                    {error, ?F("Expect integer or verify_none, verify_peer at line ~w", [Lno])}
+            end;
+        ["fail_if_no_peer_cert", '=', Val0] ->
+            Val = (catch list_to_atom(Val0)),
+            if
+                is_record(C#sconf.ssl, ssl) ->
+                    C2 = C#sconf{ssl = (C#sconf.ssl)#ssl{fail_if_no_peer_cert = Val}},
+                    fload(FD, ssl, GC, C2, Cs, Lno+1, Next);
+                true ->
+                    {error, ?F("Need to set option fail_if_no_peer_cert to true before line ~w",
+                               [Lno])}
             end;
         ["depth", '=', Val0] ->
             Val = (catch list_to_integer(Val0)),
@@ -1932,3 +1949,13 @@ delete_sconf(SC) ->
 
 update_gconf(GC) ->
     ok = gen_server:call(yaws_server, {update_gconf, GC}, infinity).
+
+ip_list_parser([], Addrs) ->
+    {ok,lists:reverse(Addrs)};
+ip_list_parser([IP|IPs], Addrs) ->
+    case inet_parse:address(IP) of
+        {error, _} ->
+            error;
+        {ok, Addr} ->
+            ip_list_parser(IPs, [Addr|Addrs])
+    end.

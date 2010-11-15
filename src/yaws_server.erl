@@ -423,7 +423,7 @@ do_listen(GC, SC) ->
         undefined when ?gc_use_fdsrv(GC) ->
             %% Use fdsrv kit from jungerl, requires fdsrv
             %% to be properly installed
-            %% This solves the problem of binding to priviliged ports. A
+            %% This solves the problem of binding to privileged ports. A
             %% better solution is to use privbind or authbind. Also this
             %% doesn't work for ssl.
 
@@ -432,6 +432,9 @@ do_listen(GC, SC) ->
                 {ok, Fd} ->
                     {nossl, undefined,
                      gen_tcp_listen(SC#sconf.port,[{fd, Fd}|listen_opts(SC)])};
+                ignore ->
+                    {nossl, undefined,
+                     gen_tcp_listen(SC#sconf.port, listen_opts(SC))};
                 Err ->
                     {nossl, undefined, Err}
             end;
@@ -872,6 +875,12 @@ ssl_listen_opts(GC, SSL) ->
                  false
          end,
 
+         if SSL#ssl.fail_if_no_peer_cert /= undefined ->
+                 {fail_if_no_peer_cert, SSL#ssl.fail_if_no_peer_cert};
+            true ->
+                 false
+         end,
+
          if SSL#ssl.password /= undefined ->
                  {password, SSL#ssl.password};
             true ->
@@ -1297,9 +1306,8 @@ maybe_auth_log(Item, ARG) ->
             yaws_log:authlog(SC#sconf.servername, IP, Path, Item)
     end.
 
-
-
 maybe_access_log(Ip, Req, H) ->
+    GC=get(gc),
     SC=get(sc),
     case ?sc_has_access_log(SC) of
         true ->
@@ -1336,7 +1344,29 @@ maybe_access_log(Ip, Req, H) ->
                        _ ->
                            "-"
                    end,
-            yaws_log:accesslog(SC#sconf.servername, Ip, User,
+            RealIp = case GC#gconf.x_forwarded_for_log_proxy_whitelist of
+                         [] ->
+                             Ip;
+                         ProxyIps ->
+                             case lists:member(Ip, ProxyIps) of
+                                 false ->
+                                     Ip;
+                                 true ->
+                                     FwdFor = H#headers.x_forwarded_for,
+                                     case yaws:split_sep(FwdFor, $,) of
+                                         [] -> Ip;
+                                         IPs ->
+                                             LastIp = lists:last(IPs),
+                                             case inet_parse:address(LastIp) of
+                                                 {error, _} ->
+                                                     "invalid ip: " ++ LastIp;
+                                                 {ok, ClientIp} ->
+                                                     ClientIp
+                                             end
+                                     end
+                             end
+                     end,
+            yaws_log:accesslog(SC#sconf.servername, RealIp, User,
                                [Meth, $\s, Path, $\s, Ver],
                                Status, Len, Referrer, UserAgent);
         false ->
